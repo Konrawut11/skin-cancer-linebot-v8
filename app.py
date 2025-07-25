@@ -17,18 +17,25 @@ logger = logging.getLogger(__name__)
 # ตรวจสอบและ import โมดูลที่จำเป็น
 try:
     import numpy as np
+    # ทดสอบ NumPy functionality
+    test_array = np.array([1, 2, 3])
     NUMPY_AVAILABLE = True
-    logger.info("NumPy imported successfully")
-except ImportError as e:
-    logger.error(f"NumPy not available: {e}")
+    logger.info(f"NumPy imported successfully - version: {np.__version__}")
+except Exception as e:
+    logger.error(f"NumPy not available or not working: {e}")
     NUMPY_AVAILABLE = False
 
 try:
     import torch
+    # ทดสอบ PyTorch-NumPy integration
+    if NUMPY_AVAILABLE:
+        test_tensor = torch.tensor([1, 2, 3])
+        test_numpy = test_tensor.cpu().numpy()
+        logger.info(f"PyTorch-NumPy integration working")
     TORCH_AVAILABLE = True
-    logger.info("PyTorch imported successfully")
-except ImportError as e:
-    logger.error(f"PyTorch not available: {e}")
+    logger.info(f"PyTorch imported successfully - version: {torch.__version__}")
+except Exception as e:
+    logger.error(f"PyTorch not available or NumPy integration failed: {e}")
     TORCH_AVAILABLE = False
 
 try:
@@ -74,18 +81,44 @@ model = None
 
 if ULTRALYTICS_AVAILABLE and TORCH_AVAILABLE and NUMPY_AVAILABLE:
     try:
+        # ตั้งค่า device เป็น CPU เพื่อหลีกเลี่ยงปัญหา
+        import os
+        os.environ['CUDA_VISIBLE_DEVICES'] = ''  # บังคับใช้ CPU
+        
+        # ปิด warning ที่ไม่จำเป็น
+        import warnings
+        warnings.filterwarnings("ignore", category=UserWarning)
+        
         if os.path.exists(MODEL_PATH):
             model = YOLO(MODEL_PATH)
-            logger.info("Custom model loaded successfully")
+            model.to('cpu')  # บังคับใช้ CPU
+            logger.info("Custom model loaded successfully on CPU")
         else:
             logger.warning(f"Model file not found at {MODEL_PATH}, using YOLOv8n")
             model = YOLO('yolov8n.pt')  # fallback model
-            logger.info("Fallback model loaded successfully")
+            model.to('cpu')  # บังคับใช้ CPU
+            logger.info("Fallback model loaded successfully on CPU")
+            
+        # ทดสอบโมเดลด้วยรูปภาพเล็กๆ
+        try:
+            test_img = np.zeros((100, 100, 3), dtype=np.uint8)
+            test_results = model(test_img, device='cpu', verbose=False)
+            logger.info("Model test prediction successful")
+        except Exception as test_error:
+            logger.warning(f"Model test failed: {test_error}")
+            
     except Exception as e:
         logger.error(f"Error loading model: {e}")
         model = None
 else:
-    logger.warning("Required dependencies not available. Model not loaded.")
+    missing_modules = []
+    if not ULTRALYTICS_AVAILABLE:
+        missing_modules.append("ultralytics")
+    if not TORCH_AVAILABLE:
+        missing_modules.append("torch")
+    if not NUMPY_AVAILABLE:
+        missing_modules.append("numpy")
+    logger.warning(f"Required dependencies not available: {missing_modules}. Model not loaded.")
 
 # คลาสโรคผิวหนัง
 SKIN_CANCER_CLASSES = {
@@ -147,19 +180,65 @@ def predict_skin_cancer(image):
         return None, "โมเดลไม่พร้อมใช้งาน - กรุณาตรวจสอบการติดตั้งโมดูล"
     
     try:
-        # แปลง PIL Image เป็น numpy array
-        img_array = np.array(image)
-        logger.info(f"Image shape: {img_array.shape}")
+        # ทดสอบ NumPy functionality ก่อนใช้งาน
+        try:
+            test_array = np.array([1, 2, 3])
+            logger.info("NumPy test passed")
+        except Exception as np_error:
+            logger.error(f"NumPy test failed: {np_error}")
+            return None, f"NumPy ไม่ทำงานอย่างถูกต้อง: {str(np_error)}"
         
-        # ทำการทำนาย
-        results = model(img_array)
+        # ลองใช้ image อย่างปลอดภัย
+        try:
+            # แปลง PIL Image เป็น numpy array
+            img_array = np.array(image)
+            logger.info(f"Image converted to array successfully - shape: {img_array.shape}")
+        except Exception as img_error:
+            logger.error(f"Failed to convert image to array: {img_error}")
+            return None, f"ไม่สามารถแปลงรูปภาพเป็น array: {str(img_error)}"
+        
+        # ลองทำการทำนายด้วย error handling ที่ดีขึ้น
+        try:
+            # กำหนด device เป็น CPU เพื่อหลีกเลี่ยงปัญหา CUDA
+            if hasattr(model, 'to'):
+                model.to('cpu')
+            
+            # ทำการทำนาย
+            results = model(img_array, device='cpu', verbose=False)
+            logger.info("Model prediction completed")
+            
+        except Exception as model_error:
+            logger.error(f"Model prediction failed: {model_error}")
+            # ลองใช้วิธีอื่น
+            try:
+                # ลองแปลงเป็น PIL Image ก่อน
+                if hasattr(image, 'convert'):
+                    rgb_image = image.convert('RGB')
+                    results = model(rgb_image, device='cpu', verbose=False)
+                    logger.info("Model prediction with PIL image successful")
+                else:
+                    raise Exception("Cannot convert image format")
+            except Exception as fallback_error:
+                logger.error(f"Fallback prediction failed: {fallback_error}")
+                return None, f"การทำนายล้มเหลว: {str(fallback_error)}"
         
         # ดึงผลลัพธ์
-        if len(results) > 0 and len(results[0].boxes) > 0:
+        if len(results) > 0 and hasattr(results[0], 'boxes') and len(results[0].boxes) > 0:
             # หา detection ที่มี confidence สูงสุด
-            best_detection = results[0].boxes[0]
-            class_id = int(best_detection.cls.item())
-            confidence = float(best_detection.conf.item())
+            boxes = results[0].boxes
+            best_idx = 0
+            best_conf = 0
+            
+            # หา box ที่มี confidence สูงสุด
+            for i, box in enumerate(boxes):
+                conf = float(box.conf.item()) if hasattr(box.conf, 'item') else float(box.conf)
+                if conf > best_conf:
+                    best_conf = conf
+                    best_idx = i
+            
+            best_detection = boxes[best_idx]
+            class_id = int(best_detection.cls.item()) if hasattr(best_detection.cls, 'item') else int(best_detection.cls)
+            confidence = float(best_detection.conf.item()) if hasattr(best_detection.conf, 'item') else float(best_detection.conf)
             
             logger.info(f"Detection result - Class: {class_id}, Confidence: {confidence}")
             
@@ -170,10 +249,13 @@ def predict_skin_cancer(image):
                 'risk_level': RISK_LEVELS.get(class_id, "ไม่ทราบ")
             }, None
         else:
-            return None, "ไม่พบรอยโรคผิวหนังในรูปภาพ"
+            logger.info("No detections found")
+            return None, "ไม่พบรอยโรคผิวหนังในรูปภาพ หรือความชัดของรูปภาพไม่เพียงพอ"
             
     except Exception as e:
         logger.error(f"Prediction error: {e}")
+        import traceback
+        logger.error(f"Full traceback: {traceback.format_exc()}")
         return None, f"เกิดข้อผิดพลาดในการวิเคราะห์: {str(e)}"
 
 def create_result_message(prediction_result):
