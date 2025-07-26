@@ -429,24 +429,55 @@ def draw_bounding_boxes(image, results):
                                 draw.rectangle([bg_x1, bg_y1, bg_x2, bg_y2], 
                                              outline=(255, 255, 255), width=1)
                                 
-                                # วาด text แต่ละบรรทัด
+                                # กำหนดสีของ text ตาม class (เพื่อความเด่นชัด)
+                                if class_id == 0:  # Melanoma (ความเสี่ยงสูง)
+                                    main_text_color = (255, 255, 255)  # ขาว
+                                    conf_text_color = (255, 100, 100)  # แดงอ่อน
+                                elif class_id == 1:  # Nevus (ความเสี่ยงต่ำ)
+                                    main_text_color = (255, 255, 255)  # ขาว
+                                    conf_text_color = (100, 255, 100)  # เขียวอ่อน
+                                else:  # Seborrheic Keratosis (ความเสี่ยงปานกลาง)
+                                    main_text_color = (255, 255, 255)  # ขาว
+                                    conf_text_color = (255, 200, 100)  # ส้มอ่อน
+                                
+                                # วาด text แต่ละบรรทัดพร้อม text shadow เพื่อความชัดเจน
                                 current_y = text_y
                                 
-                                # บรรทัดที่ 1: ชื่อโรค (สีขาว)
-                                draw.text((text_x, current_y), main_label, fill=(255, 255, 255), font=font)
+                                # เพิ่ม text shadow (เงา) เพื่อให้อ่านง่าย
+                                shadow_offset = max(1, font_size // 16)
+                                shadow_color = (0, 0, 0)  # เงาสีดำ
+                                
+                                # บรรทัดที่ 1: ชื่อโรค
+                                # วาดเงาก่อน
+                                draw.text((text_x + shadow_offset, current_y + shadow_offset), 
+                                         main_label, fill=shadow_color, font=font)
+                                # วาด text หลัก
+                                draw.text((text_x, current_y), main_label, fill=main_text_color, font=font)
                                 current_y += main_height + line_spacing
                                 
-                                # บรรทัดที่ 2: ความแม่นยำ (สีเหลืองเพื่อเด่น)
-                                draw.text((text_x, current_y), confidence_label, fill=(255, 255, 0), font=font)
+                                # บรรทัดที่ 2: ความแม่นยำ
+                                # วาดเงาก่อน
+                                draw.text((text_x + shadow_offset, current_y + shadow_offset), 
+                                         confidence_label, fill=shadow_color, font=font)
+                                # วาด text หลัก (ใช้สีตาม class)
+                                draw.text((text_x, current_y), confidence_label, fill=conf_text_color, font=font)
                                 
                                 logger.info(f"Drew text: {main_label} | {confidence_label} at ({text_x}, {text_y}) with font size {font_size}")
                                 
                             except Exception as text_error:
                                 logger.error(f"Error drawing text: {text_error}")
                                 
-                                # Fallback: วาดข้อความแบบง่าย
+                                # Fallback: วาดข้อความแบบง่ายพร้อมสีที่เหมาะสม
                                 try:
                                     simple_label = f"{class_name} {confidence:.1%}"
+                                    
+                                    # กำหนดสี text สำหรับ fallback
+                                    if class_id == 0:  # Melanoma
+                                        text_color = (255, 200, 200)  # แดงอ่อน
+                                    elif class_id == 1:  # Nevus
+                                        text_color = (200, 255, 200)  # เขียวอ่อน
+                                    else:  # Seborrheic Keratosis
+                                        text_color = (255, 220, 150)  # ส้มอ่อน
                                     
                                     if font:
                                         bbox = draw.textbbox((0, 0), simple_label, font=font)
@@ -460,20 +491,32 @@ def draw_bounding_boxes(image, results):
                                     text_x = x1
                                     text_y = max(0, y1 - text_height - 10)
                                     
-                                    # วาด background
+                                    # วาด background มีความโปร่งใส
                                     padding = 4
+                                    bg_color = tuple(int(c * 0.8) for c in color)  # สีเข้มกว่าเดิมเล็กน้อย
+                                    
                                     draw.rectangle([text_x-padding, text_y-padding, 
                                                   text_x+text_width+padding, text_y+text_height+padding], 
-                                                 fill=color)
+                                                 fill=bg_color)
                                     
-                                    # วาด text
+                                    # วาดขอบขาว
+                                    draw.rectangle([text_x-padding, text_y-padding, 
+                                                  text_x+text_width+padding, text_y+text_height+padding], 
+                                                 outline=(255, 255, 255), width=1)
+                                    
+                                    # วาด text shadow
+                                    shadow_offset = 1
                                     if font:
-                                        draw.text((text_x, text_y), simple_label, fill=(255, 255, 255), font=font)
+                                        draw.text((text_x + shadow_offset, text_y + shadow_offset), 
+                                                simple_label, fill=(0, 0, 0), font=font)
+                                        draw.text((text_x, text_y), simple_label, fill=text_color, font=font)
                                     else:
                                         # ใช้ default font ถ้าไม่มี font
-                                        draw.text((text_x, text_y), simple_label, fill=(255, 255, 255))
+                                        draw.text((text_x + shadow_offset, text_y + shadow_offset), 
+                                                simple_label, fill=(0, 0, 0))
+                                        draw.text((text_x, text_y), simple_label, fill=text_color)
                                     
-                                    logger.info(f"Drew fallback text: {simple_label}")
+                                    logger.info(f"Drew fallback text: {simple_label} with color {text_color}")
                                     
                                 except Exception as fallback_error:
                                     logger.error(f"Fallback text drawing failed: {fallback_error}")
@@ -495,7 +538,6 @@ def draw_bounding_boxes(image, results):
         import traceback
         logger.error(f"Full traceback: {traceback.format_exc()}")
         return image
-
 def predict_skin_cancer(image):
     """ทำนายโรคผิวหนังจากรูปภาพ - แก้ไขปัญหา bounding box"""
     if model is None:
