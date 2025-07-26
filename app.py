@@ -433,15 +433,15 @@ def draw_bounding_boxes(image, results):
                                 if class_id == 0:  # Melanoma (ความเสี่ยงสูง)
                                     #main_text_color = (255, 255, 255)  # ขาว
                                     main_text_color = (0, 0, 0)  # ดำ
-                                    conf_text_color = (255, 100, 100)  # แดงอ่อน
+                                    conf_text_color = (0, 0, 0)  # แดงอ่อน
                                 elif class_id == 1:  # Nevus (ความเสี่ยงต่ำ)
                                     #main_text_color = (255, 255, 255)  # ขาว
                                     main_text_color = (0, 0, 0)  # ดำ
-                                    conf_text_color = (100, 255, 100)  # เขียวอ่อน
+                                    conf_text_color = (0, 0, 0)  # เขียวอ่อน
                                 else:  # Seborrheic Keratosis (ความเสี่ยงปานกลาง)
                                     #main_text_color = (255, 255, 255)  # ขาว
                                     main_text_color = (0, 0, 0)  # ดำ
-                                    conf_text_color = (255, 200, 100)  # ส้มอ่อน
+                                    conf_text_color = (0, 0, 0)  # ส้มอ่อน
                                 
                                 # วาด text แต่ละบรรทัดพร้อม text shadow เพื่อความชัดเจน
                                 current_y = text_y
