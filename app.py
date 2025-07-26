@@ -580,7 +580,7 @@ def predict_skin_cancer(image):
                 model.to('cpu')
             
             # ใช้ numpy array โดยตรง
-            results = model(img_array, device='cpu', verbose=False, conf=0.3)  # ลด threshold
+            results = model(img_array, device='cpu', verbose=False, conf=0.1)  # ลด threshold
             logger.info(f"Model prediction completed, results count: {len(results)}")
             
             # ตรวจสอบผลลัพธ์
