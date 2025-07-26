@@ -138,6 +138,12 @@ else:
 
 # คลาสโรคผิวหนัง
 SKIN_CANCER_CLASSES = {
+    0: "Melanoma",
+    1: "Nevus", 
+    2: "Seborrheic Keratosis"
+}
+
+SKIN_CANCER_CLASSES_TH = {
     0: "เมลาโนมา (Melanoma)",
     1: "เนวัส (Nevus)", 
     2: "เซบอร์รีอิก เคราโทซิส (Seborrheic Keratosis)"
@@ -321,58 +327,49 @@ def draw_bounding_boxes(image, results):
                         
                         class_name = SKIN_CANCER_CLASSES.get(class_id, "Unknown")
                         
-                        # สร้าง label หลายบรรทัด
+                        # สร้าง label แค่ 2 บรรทัด (ภาษาอังกฤษ)
                         main_label = f"{class_name}"
-                        confidence_label = f"ความแม่นยำ: {confidence:.1%}"
-                        risk_label = f"{RISK_LEVELS.get(class_id, 'ไม่ทราบ')}"
+                        confidence_label = f"{confidence:.1%}"
                         
-                        # วาด background และ text สำหรับแต่ละบรรทัด
+                        # วาด background และ text สำหรับ 2 บรรทัด
                         if font:
                             try:
                                 # คำนวณขนาด text สำหรับแต่ละบรรทัด
                                 main_bbox = draw.textbbox((0, 0), main_label, font=font)
                                 conf_bbox = draw.textbbox((0, 0), confidence_label, font=font)
-                                risk_bbox = draw.textbbox((0, 0), risk_label, font=font)
                                 
                                 main_width = main_bbox[2] - main_bbox[0]
                                 main_height = main_bbox[3] - main_bbox[1]
                                 conf_width = conf_bbox[2] - conf_bbox[0]
                                 conf_height = conf_bbox[3] - conf_bbox[1]
-                                risk_width = risk_bbox[2] - risk_bbox[0]
-                                risk_height = risk_bbox[3] - risk_bbox[1]
                                 
                                 # หาความกว้างสูงสุด
-                                max_width = max(main_width, conf_width, risk_width)
-                                total_height = main_height + conf_height + risk_height + 12  # เว้นระยะ 4px ระหว่างบรรทัด
+                                max_width = max(main_width, conf_width)
+                                total_height = main_height + conf_height + 6  # เว้นระยะ 6px ระหว่างบรรทัด
                                 
                                 # คำนวณตำแหน่ง
                                 text_x = x1
-                                text_y = max(5, y1 - total_height - 15)
+                                text_y = max(5, y1 - total_height - 10)
                                 
                                 # วาด background สำหรับทั้งหมด
-                                draw.rectangle([text_x-5, text_y-5, text_x+max_width+10, text_y+total_height+5], 
+                                draw.rectangle([text_x-4, text_y-4, text_x+max_width+8, text_y+total_height+4], 
                                              fill=color)
                                 
                                 # วาดขอบสีขาว
-                                draw.rectangle([text_x-5, text_y-5, text_x+max_width+10, text_y+total_height+5], 
-                                             outline=(255, 255, 255), width=2)
+                                draw.rectangle([text_x-4, text_y-4, text_x+max_width+8, text_y+total_height+4], 
+                                             outline=(255, 255, 255), width=1)
                                 
                                 # วาด text แต่ละบรรทัด
                                 current_y = text_y
                                 
-                                # บรรทัดที่ 1: ชื่อโรค
+                                # บรรทัดที่ 1: ชื่อโรค (ภาษาอังกฤษ)
                                 draw.text((text_x, current_y), main_label, fill=(255, 255, 255), font=font)
-                                current_y += main_height + 4
+                                current_y += main_height + 6
                                 
                                 # บรรทัดที่ 2: ความแม่นยำ (สีเหลืองเพื่อเด่น)
                                 draw.text((text_x, current_y), confidence_label, fill=(255, 255, 0), font=font)
-                                current_y += conf_height + 4
                                 
-                                # บรรทัดที่ 3: ระดับความเสี่ยง
-                                risk_color = (255, 100, 100) if class_id == 0 else (100, 255, 100) if class_id == 1 else (255, 200, 100)
-                                draw.text((text_x, current_y), risk_label, fill=risk_color, font=font)
-                                
-                                logger.info(f"Drew enhanced text: {main_label} | {confidence_label} | {risk_label} at ({text_x}, {text_y})")
+                                logger.info(f"Drew text: {main_label} | {confidence_label} at ({text_x}, {text_y})")
                                 
                             except Exception as text_error:
                                 # Fallback: วาดแค่ข้อความเดียว
@@ -485,7 +482,7 @@ def predict_skin_cancer(image):
             
             prediction_result = {
                 'class_id': class_id,
-                'class_name': SKIN_CANCER_CLASSES.get(class_id, "Unknown"),
+                'class_name': SKIN_CANCER_CLASSES_TH.get(class_id, "Unknown"),
                 'confidence': confidence,
                 'risk_level': RISK_LEVELS.get(class_id, "ไม่ทราบ"),
                 'total_detections': len(boxes)
