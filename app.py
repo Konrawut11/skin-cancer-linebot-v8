@@ -70,13 +70,19 @@ app = Flask(__name__)
 LINE_CHANNEL_ACCESS_TOKEN = os.getenv('LINE_CHANNEL_ACCESS_TOKEN')
 LINE_CHANNEL_SECRET = os.getenv('LINE_CHANNEL_SECRET')
 
-# ตั้งค่า BASE_URL อัตโนมัติสำหรับ Railway
-RAILWAY_STATIC_URL = os.getenv('RAILWAY_STATIC_URL')
-if RAILWAY_STATIC_URL:
-    BASE_URL = RAILWAY_STATIC_URL
+# ตั้งค่า BASE_URL อัตโนมัติสำหรับ Railway - แก้ไขใหม่
+RAILWAY_PUBLIC_DOMAIN = os.getenv('RAILWAY_PUBLIC_DOMAIN')
+if RAILWAY_PUBLIC_DOMAIN:
+    BASE_URL = f"https://{RAILWAY_PUBLIC_DOMAIN}"
 else:
-    # Fallback สำหรับ Railway
-    BASE_URL = f"https://{os.getenv('RAILWAY_SERVICE_NAME', 'your-app')}.up.railway.app"
+    # ลองใช้ static url
+    RAILWAY_STATIC_URL = os.getenv('RAILWAY_STATIC_URL')
+    if RAILWAY_STATIC_URL:
+        BASE_URL = RAILWAY_STATIC_URL
+    else:
+        # สร้าง URL จากชื่อ project
+        project_name = os.getenv('RAILWAY_PROJECT_NAME', 'skin-cancer-linebot-v8')
+        BASE_URL = f"https://{project_name}.up.railway.app"
 
 logger.info(f"BASE_URL set to: {BASE_URL}")
 
@@ -150,15 +156,20 @@ CLASS_COLORS = {
 }
 
 def save_image_temporarily(image, filename):
-    """บันทึกรูปภาพชั่วคราวสำหรับ Railway"""
+    """บันทึกรูปภาพชั่วคราวสำหรับ Railway - ปรับปรุงใหม่"""
     try:
-        # สร้างโฟลเดอร์ temp ถ้ายังไม่มี
-        temp_dir = "temp_images"
-        if not os.path.exists(temp_dir):
-            os.makedirs(temp_dir)
+        # สร้างโฟลเดอร์ static สำหรับ Railway
+        static_dir = "static"
+        if not os.path.exists(static_dir):
+            os.makedirs(static_dir)
+        
+        # สร้างโฟลเดอร์ย่อย images
+        images_dir = os.path.join(static_dir, "images")
+        if not os.path.exists(images_dir):
+            os.makedirs(images_dir)
         
         # บันทึกรูปภาพ
-        file_path = os.path.join(temp_dir, filename)
+        file_path = os.path.join(images_dir, filename)
         
         # แปลงเป็น RGB ก่อนบันทึกเป็น JPEG
         if image.mode in ('RGBA', 'LA', 'P'):
@@ -177,37 +188,43 @@ def save_image_temporarily(image, filename):
         if not os.path.exists(file_path):
             raise Exception("ไม่สามารถสร้างไฟล์รูปภาพได้")
         
-        # สร้าง URL สำหรับ Railway
-        image_url = f"{BASE_URL}/temp_images/{filename}"
+        # สร้าง URL หลายรูปแบบ
+        image_urls = [
+            f"{BASE_URL}/static/images/{filename}",
+            f"{BASE_URL}/images/{filename}",
+            f"{BASE_URL}/serve_image/{filename}"
+        ]
         
-        logger.info(f"Image saved: {file_path}, URL: {image_url}")
-        return image_url, file_path
+        logger.info(f"Image saved: {file_path}")
+        logger.info(f"Image URLs: {image_urls}")
+        
+        return image_urls, file_path
         
     except Exception as e:
         logger.error(f"Error saving image temporarily: {e}")
         return None, None
 
 def cleanup_old_images():
-    """ลบไฟล์รูปภาพเก่า"""
+    """ลบไฟล์รูปภาพเก่า - ปรับปรุงใหม่"""
     try:
-        temp_dir = "temp_images"
-        if not os.path.exists(temp_dir):
-            return
-        
-        current_time = time.time()
-        max_age = 3600  # 1 hour
-        
-        for filename in os.listdir(temp_dir):
-            file_path = os.path.join(temp_dir, filename)
-            if os.path.isfile(file_path):
-                file_age = current_time - os.path.getctime(file_path)
-                if file_age > max_age:
-                    try:
-                        os.remove(file_path)
-                        logger.info(f"Cleaned up old file: {filename}")
-                    except Exception as e:
-                        logger.error(f"Error removing file {filename}: {e}")
-                        
+        for dir_name in ["static/images", "temp_images"]:
+            if not os.path.exists(dir_name):
+                continue
+            
+            current_time = time.time()
+            max_age = 3600  # 1 hour
+            
+            for filename in os.listdir(dir_name):
+                file_path = os.path.join(dir_name, filename)
+                if os.path.isfile(file_path):
+                    file_age = current_time - os.path.getctime(file_path)
+                    if file_age > max_age:
+                        try:
+                            os.remove(file_path)
+                            logger.info(f"Cleaned up old file: {filename}")
+                        except Exception as e:
+                            logger.error(f"Error removing file {filename}: {e}")
+                            
     except Exception as e:
         logger.error(f"Error in cleanup_old_images: {e}")
 
@@ -229,7 +246,7 @@ def download_image_from_line(message_id):
         return None
 
 def draw_bounding_boxes(image, results):
-    """วาด bounding boxes บนรูปภาพ"""
+    """วาด bounding boxes บนรูปภาพ - ปรับปรุงใหม่"""
     try:
         if image.mode != 'RGB':
             image = image.convert('RGB')
@@ -237,6 +254,7 @@ def draw_bounding_boxes(image, results):
         img_with_boxes = image.copy()
         draw = ImageDraw.Draw(img_with_boxes)
         
+        # ใช้ font ที่มีขนาดใหญ่กว่า
         try:
             font = ImageFont.load_default()
         except:
@@ -252,15 +270,22 @@ def draw_bounding_boxes(image, results):
                 
                 color = CLASS_COLORS.get(class_id, (255, 255, 0))
                 
-                # วาด bounding box
-                draw.rectangle([x1, y1, x2, y2], outline=color, width=3)
+                # วาด bounding box หนาขึ้น
+                for i in range(5):  # วาดหลายเส้นเพื่อให้หนา
+                    draw.rectangle([x1+i, y1+i, x2-i, y2-i], outline=color, width=1)
                 
                 class_name = SKIN_CANCER_CLASSES.get(class_id, "Unknown")
-                label = f"{class_name}\n{confidence:.2%}"
+                label = f"{class_name} {confidence:.1%}"
                 
+                # สร้าง background สำหรับ text
                 if font:
-                    draw.rectangle([x1, y1-30, x2, y1], fill=color)
-                    draw.text((x1+5, y1-25), label, fill=(255, 255, 255), font=font)
+                    bbox = draw.textbbox((0, 0), label, font=font)
+                    text_width = bbox[2] - bbox[0]
+                    text_height = bbox[3] - bbox[1]
+                    
+                    # วาด background
+                    draw.rectangle([x1, y1-text_height-10, x1+text_width+10, y1], fill=color)
+                    draw.text((x1+5, y1-text_height-5), label, fill=(255, 255, 255), font=font)
         
         return img_with_boxes
         
@@ -367,7 +392,7 @@ def create_result_message(prediction_result):
     
     return message
 
-# Routes
+# Routes - ปรับปรุงใหม่
 @app.route("/")
 def home():
     return """
@@ -375,7 +400,50 @@ def home():
     <p>Status: Active</p>
     <p>Model: """ + ("Loaded" if model is not None else "Not Loaded") + """</p>
     <p>BASE_URL: """ + BASE_URL + """</p>
+    <p>Webhook URL: """ + BASE_URL + """/webhook</p>
     """
+
+# เพิ่ม routes หลายรูปแบบสำหรับการเสิร์ฟรูปภาพ
+@app.route("/static/images/<filename>")
+def serve_static_image(filename):
+    """ให้บริการรูปภาพแบบ static"""
+    try:
+        return send_from_directory('static/images', filename)
+    except Exception as e:
+        logger.error(f"Error serving static image: {e}")
+        abort(404)
+
+@app.route("/images/<filename>")
+def serve_image_alt(filename):
+    """ให้บริการรูปภาพแบบทางเลือก"""
+    try:
+        # ลองหาใน static/images ก่อน
+        if os.path.exists(os.path.join('static/images', filename)):
+            return send_from_directory('static/images', filename)
+        # ลองหาใน temp_images
+        elif os.path.exists(os.path.join('temp_images', filename)):
+            return send_from_directory('temp_images', filename)
+        else:
+            abort(404)
+    except Exception as e:
+        logger.error(f"Error serving image alt: {e}")
+        abort(404)
+
+@app.route("/serve_image/<filename>")
+def serve_image_custom(filename):
+    """ให้บริการรูปภาพแบบกำหนดเอง"""
+    try:
+        # ลองหาใน static/images ก่อน
+        if os.path.exists(os.path.join('static/images', filename)):
+            return send_from_directory('static/images', filename)
+        # ลองหาใน temp_images
+        elif os.path.exists(os.path.join('temp_images', filename)):
+            return send_from_directory('temp_images', filename)
+        else:
+            abort(404)
+    except Exception as e:
+        logger.error(f"Error serving custom image: {e}")
+        abort(404)
 
 @app.route("/temp_images/<filename>")
 def serve_temp_image(filename):
@@ -383,7 +451,7 @@ def serve_temp_image(filename):
     try:
         return send_from_directory('temp_images', filename)
     except Exception as e:
-        logger.error(f"Error serving image: {e}")
+        logger.error(f"Error serving temp image: {e}")
         abort(404)
 
 @app.route("/health")
@@ -398,7 +466,11 @@ def health_check():
             "cv2_available": CV2_AVAILABLE,
             "pil_available": PIL_AVAILABLE,
             "ultralytics_available": ULTRALYTICS_AVAILABLE,
-            "base_url": BASE_URL
+            "base_url": BASE_URL,
+            "directories": {
+                "static_images": os.path.exists('static/images'),
+                "temp_images": os.path.exists('temp_images')
+            }
         }
         return status, 200
     except Exception as e:
@@ -456,6 +528,8 @@ def handle_text_message(event):
 🎨 PIL: {'✅' if PIL_AVAILABLE else '❌'}
 🚀 Ultralytics: {'✅' if ULTRALYTICS_AVAILABLE else '❌'}
 🌐 Base URL: {BASE_URL}
+📁 Static Dir: {'✅' if os.path.exists('static/images') else '❌'}
+📁 Temp Dir: {'✅' if os.path.exists('temp_images') else '❌'}
 
 🎯 ฟีเจอร์ Bounding Box: ✅ พร้อมใช้งาน
 
@@ -476,7 +550,7 @@ def handle_text_message(event):
 
 @handler.add(MessageEvent, message=ImageMessage)
 def handle_image_message(event):
-    """จัดการรูปภาพ"""
+    """จัดการรูปภาพ - ปรับปรุงใหม่"""
     try:
         # ส่งข้อความแจ้งว่ากำลังประมวลผล
         line_bot_api.reply_message(
@@ -510,36 +584,54 @@ def handle_image_message(event):
         if img_with_boxes is not None:
             try:
                 # สร้างชื่อไฟล์ unique
-                filename = f"result_{int(time.time())}_{random.randint(1000, 9999)}.jpg"
+                timestamp = int(time.time())
+                random_num = random.randint(1000, 9999)
+                filename = f"result_{timestamp}_{random_num}.jpg"
                 
                 # บันทึกรูปภาพชั่วคราว
-                image_url, file_path = save_image_temporarily(img_with_boxes, filename)
+                image_urls, file_path = save_image_temporarily(img_with_boxes, filename)
                 
-                if image_url:
-                    # ส่งรูปภาพและข้อความผลลัพธ์
-                    messages = [
-                        ImageSendMessage(
-                            original_content_url=image_url,
-                            preview_image_url=image_url
-                        ),
-                        TextSendMessage(text=result_message)
-                    ]
-                    
-                    line_bot_api.push_message(event.source.user_id, messages)
-                    logger.info(f"Image sent successfully: {image_url}")
-                else:
-                    # ถ้าส่งรูปภาพไม่ได้ ส่งแค่ข้อความ
+                success_sent = False
+                
+                if image_urls:
+                    # ลองส่งรูปภาพด้วย URL แต่ละตัว
+                    for image_url in image_urls:
+                        try:
+                            logger.info(f"Attempting to send image with URL: {image_url}")
+                            
+                            messages = [
+                                ImageSendMessage(
+                                    original_content_url=image_url,
+                                    preview_image_url=image_url
+                                ),
+                                TextSendMessage(text=result_message)
+                            ]
+                            
+                            line_bot_api.push_message(event.source.user_id, messages)
+                            logger.info(f"Image sent successfully with URL: {image_url}")
+                            success_sent = True
+                            break
+                            
+                        except Exception as url_error:
+                            logger.warning(f"Failed to send image with URL {image_url}: {url_error}")
+                            continue
+                
+                if not success_sent:
+                    # ถ้าส่งรูปภาพไม่ได้ทุก URL ส่งแค่ข้อความ
+                    logger.error("All image URLs failed, sending text only")
                     line_bot_api.push_message(
                         event.source.user_id,
-                        TextSendMessage(text=f"{result_message}\n\n⚠️ ไม่สามารถส่งรูปภาพที่วิเคราะห์แล้วได้")
+                        TextSendMessage(text=f"{result_message}\n\n⚠️ ไม่สามารถส่งรูปภาพที่วิเคราะห์แล้วได้ กรุณาลองใหม่อีกครั้ง")
                     )
+                else:
+                    logger.info("Image sent successfully")
                     
             except Exception as img_error:
-                logger.error(f"Error sending image: {img_error}")
+                logger.error(f"Error in image processing: {img_error}")
                 # ส่งแค่ข้อความผลลัพธ์
                 line_bot_api.push_message(
                     event.source.user_id,
-                    TextSendMessage(text=f"{result_message}\n\n⚠️ ส่งรูปภาพไม่ได้: {str(img_error)}")
+                    TextSendMessage(text=f"{result_message}\n\n⚠️ เกิดข้อผิดพลาดในการส่งรูปภาพ: {str(img_error)}")
                 )
         else:
             # ไม่มีรูปภาพ ส่งแค่ข้อความ
@@ -563,9 +655,12 @@ if __name__ == "__main__":
     print(f"📡 BASE_URL: {BASE_URL}")
     print(f"🤖 Model Status: {'✅ Loaded' if model is not None else '❌ Not Loaded'}")
     
-    # สร้างโฟลเดอร์ temp_images
-    if not os.path.exists("temp_images"):
-        os.makedirs("temp_images")
+    # สร้างโฟลเดอร์ที่จำเป็น
+    directories = ["temp_images", "static", "static/images"]
+    for directory in directories:
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+            print(f"📁 Created directory: {directory}")
     
     # รันแอป
     port = int(os.environ.get('PORT', 5000))
