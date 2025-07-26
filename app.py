@@ -289,7 +289,7 @@ def draw_bounding_boxes(image, results):
         #except:
         #    font = None
         try:
-            font = ImageFont.truetype("arial.ttf", size=20)  # หรือ 24, 28 แล้วแต่ความต้องการ
+            font = ImageFont.truetype("arial.ttf", size=36)  # หรือ 24, 28 แล้วแต่ความต้องการ
         except:
             font = ImageFont.load_default()
         
