@@ -267,7 +267,7 @@ def download_image_from_line(message_id):
         return None
 
 def draw_bounding_boxes(image, results):
-    """วาด bounding boxes บนรูปภาพ - แก้ไขปัญหา bounding box"""
+    """วาด bounding boxes บนรูปภาพ - ปรับปรุงขนาด font"""
     try:
         # ตรวจสอบว่าเป็น PIL Image
         if not isinstance(image, Image.Image):
@@ -282,16 +282,57 @@ def draw_bounding_boxes(image, results):
         img_with_boxes = image.copy()
         draw = ImageDraw.Draw(img_with_boxes)
         
-        # ใช้ font ขนาดใหญ่กว่า
-       # try:
-            # ลองหา font ที่ใหญ่กว่า
-        #    font = ImageFont.load_default()
-        #except:
-        #    font = None
-        try:
-            font = ImageFont.truetype("arial.ttf", size=36)  # หรือ 24, 28 แล้วแต่ความต้องการ
-        except:
-            font = ImageFont.load_default()
+        # คำนวณขนาด font ตามขนาดรูปภาพ
+        img_width, img_height = img_with_boxes.size
+        
+        # คำนวณขนาด font ที่เหมาะสม (สัดส่วนกับขนาดรูป)
+        base_font_size = max(16, min(img_width, img_height) // 25)  # ขั้นต่ำ 16px
+        
+        # จำกัดขนาดสูงสุดเพื่อไม่ให้ใหญ่เกินไป
+        font_size = min(base_font_size, 48)
+        
+        logger.info(f"Image size: {img_width}x{img_height}, calculated font size: {font_size}")
+        
+        # ลองใช้ font ต่างๆ ตามลำดับความสำคัญ
+        font = None
+        font_paths = [
+            "arial.ttf",
+            "Arial.ttf", 
+            "arialbd.ttf",  # Arial Bold
+            "calibri.ttf",
+            "Calibri.ttf",
+            "DejaVuSans.ttf",
+            "DejaVuSans-Bold.ttf"
+        ]
+        
+        # ลองโหลด TrueType font
+        for font_path in font_paths:
+            try:
+                font = ImageFont.truetype(font_path, size=font_size)
+                logger.info(f"Successfully loaded font: {font_path}, size: {font_size}")
+                break
+            except (IOError, OSError):
+                continue
+        
+        # ถ้าโหลด TrueType font ไม่ได้ ใช้ default font
+        if font is None:
+            try:
+                # ใช้ default font และปรับขนาดถ้าเป็นไปได้
+                font = ImageFont.load_default()
+                logger.info(f"Using default font, target size: {font_size}")
+                
+                # ลองสร้าง default font ขนาดใหญ่ขึ้น (สำหรับ Pillow version ใหม่)
+                try:
+                    font = ImageFont.load_default(size=font_size)
+                    logger.info(f"Default font loaded with size: {font_size}")
+                except TypeError:
+                    # Pillow version เก่าไม่รองรับ size parameter
+                    font = ImageFont.load_default()
+                    logger.info("Using basic default font (no size parameter)")
+                    
+            except Exception as font_error:
+                logger.error(f"Cannot load any font: {font_error}")
+                font = None
         
         logger.info(f"Drawing on image size: {img_with_boxes.size}")
         
@@ -310,7 +351,6 @@ def draw_bounding_boxes(image, results):
                         logger.info(f"Box {i}: ({x1:.1f}, {y1:.1f}, {x2:.1f}, {y2:.1f}), class: {class_id}, conf: {confidence:.3f}")
                         
                         # ตรวจสอบว่า coordinates อยู่ในขอบเขตรูปภาพ
-                        img_width, img_height = img_with_boxes.size
                         x1 = max(0, min(x1, img_width))
                         y1 = max(0, min(y1, img_height))
                         x2 = max(0, min(x2, img_width))
@@ -323,19 +363,26 @@ def draw_bounding_boxes(image, results):
                         
                         color = CLASS_COLORS.get(class_id, (255, 255, 0))
                         
-                        # วาด bounding box หนาขึ้น (เพิ่มความชัดเจน)
-                        box_thickness = max(3, min(img_width, img_height) // 200)  # ปรับความหนาตามขนาดรูป
+                        # คำนวณความหนาของเส้นตามขนาดรูปและ bounding box
+                        box_width = x2 - x1
+                        box_height = y2 - y1
+                        box_area = box_width * box_height
+                        
+                        # ความหนาของเส้นขึ้นอยู่กับขนาดของ bounding box
+                        box_thickness = max(2, min(8, int((box_area / (img_width * img_height)) * 100)))
+                        
+                        # วาด bounding box หนาขึ้น
                         for thickness in range(box_thickness):
                             draw.rectangle([x1+thickness, y1+thickness, x2-thickness, y2-thickness], 
                                          outline=color, width=1)
                         
                         class_name = SKIN_CANCER_CLASSES.get(class_id, "Unknown")
                         
-                        # สร้าง label แค่ 2 บรรทัด (ภาษาอังกฤษ)
+                        # สร้าง label text
                         main_label = f"{class_name}"
                         confidence_label = f"{confidence:.1%}"
                         
-                        # วาด background และ text สำหรับ 2 บรรทัด
+                        # วาด text labels ถ้ามี font
                         if font:
                             try:
                                 # คำนวณขนาด text สำหรับแต่ละบรรทัด
@@ -349,49 +396,90 @@ def draw_bounding_boxes(image, results):
                                 
                                 # หาความกว้างสูงสุด
                                 max_width = max(main_width, conf_width)
-                                total_height = main_height + conf_height + 6  # เว้นระยะ 6px ระหว่างบรรทัด
+                                line_spacing = max(4, font_size // 8)  # ระยะห่างระหว่างบรรทัด
+                                total_height = main_height + conf_height + line_spacing
                                 
-                                # คำนวณตำแหน่ง
+                                # คำนวณตำแหน่ง text
                                 text_x = x1
                                 text_y = max(5, y1 - total_height - 10)
                                 
-                                # วาด background สำหรับทั้งหมด
-                                draw.rectangle([text_x-4, text_y-4, text_x+max_width+8, text_y+total_height+4], 
-                                             fill=color)
+                                # ถ้า text อยู่เหนือขอบบน ให้ย้ายลงมาใต้ bounding box
+                                if text_y < 5:
+                                    text_y = y2 + 5
                                 
-                                # วาดขอบสีขาว
-                                draw.rectangle([text_x-4, text_y-4, text_x+max_width+8, text_y+total_height+4], 
+                                # คำนวณ padding สำหรับ background
+                                padding = max(4, font_size // 8)
+                                
+                                # วาด background สำหรับ text
+                                bg_x1 = text_x - padding
+                                bg_y1 = text_y - padding
+                                bg_x2 = text_x + max_width + padding
+                                bg_y2 = text_y + total_height + padding
+                                
+                                # ตรวจสอบไม่ให้ background เกินขอบรูป
+                                bg_x1 = max(0, bg_x1)
+                                bg_y1 = max(0, bg_y1)
+                                bg_x2 = min(img_width, bg_x2)
+                                bg_y2 = min(img_height, bg_y2)
+                                
+                                # วาด background
+                                draw.rectangle([bg_x1, bg_y1, bg_x2, bg_y2], fill=color)
+                                
+                                # วาดขอบสีขาวรอบ background
+                                draw.rectangle([bg_x1, bg_y1, bg_x2, bg_y2], 
                                              outline=(255, 255, 255), width=1)
                                 
                                 # วาด text แต่ละบรรทัด
                                 current_y = text_y
                                 
-                                # บรรทัดที่ 1: ชื่อโรค (ภาษาอังกฤษ)
+                                # บรรทัดที่ 1: ชื่อโรค (สีขาว)
                                 draw.text((text_x, current_y), main_label, fill=(255, 255, 255), font=font)
-                                current_y += main_height + 6
+                                current_y += main_height + line_spacing
                                 
                                 # บรรทัดที่ 2: ความแม่นยำ (สีเหลืองเพื่อเด่น)
                                 draw.text((text_x, current_y), confidence_label, fill=(255, 255, 0), font=font)
                                 
-                                logger.info(f"Drew text: {main_label} | {confidence_label} at ({text_x}, {text_y})")
+                                logger.info(f"Drew text: {main_label} | {confidence_label} at ({text_x}, {text_y}) with font size {font_size}")
                                 
                             except Exception as text_error:
-                                # Fallback: วาดแค่ข้อความเดียว
+                                logger.error(f"Error drawing text: {text_error}")
+                                
+                                # Fallback: วาดข้อความแบบง่าย
                                 try:
                                     simple_label = f"{class_name} {confidence:.1%}"
-                                    bbox = draw.textbbox((0, 0), simple_label, font=font)
-                                    text_width = bbox[2] - bbox[0]
-                                    text_height = bbox[3] - bbox[1]
+                                    
+                                    if font:
+                                        bbox = draw.textbbox((0, 0), simple_label, font=font)
+                                        text_width = bbox[2] - bbox[0]
+                                        text_height = bbox[3] - bbox[1]
+                                    else:
+                                        # ประมาณขนาด text ถ้าไม่มี font
+                                        text_width = len(simple_label) * (font_size // 2)
+                                        text_height = font_size
                                     
                                     text_x = x1
                                     text_y = max(0, y1 - text_height - 10)
                                     
-                                    draw.rectangle([text_x-2, text_y-2, text_x+text_width+4, text_y+text_height+2], 
+                                    # วาด background
+                                    padding = 4
+                                    draw.rectangle([text_x-padding, text_y-padding, 
+                                                  text_x+text_width+padding, text_y+text_height+padding], 
                                                  fill=color)
-                                    draw.text((text_x, text_y), simple_label, fill=(255, 255, 255), font=font)
                                     
-                                except:
-                                    logger.error(f"Error drawing text: {text_error}")
+                                    # วาด text
+                                    if font:
+                                        draw.text((text_x, text_y), simple_label, fill=(255, 255, 255), font=font)
+                                    else:
+                                        # ใช้ default font ถ้าไม่มี font
+                                        draw.text((text_x, text_y), simple_label, fill=(255, 255, 255))
+                                    
+                                    logger.info(f"Drew fallback text: {simple_label}")
+                                    
+                                except Exception as fallback_error:
+                                    logger.error(f"Fallback text drawing failed: {fallback_error}")
+                        else:
+                            # ไม่มี font ใช้ได้ - วาดแค่ bounding box
+                            logger.warning("No font available, drawing bounding box only")
                     
                 except Exception as box_error:
                     logger.error(f"Error processing box {i}: {box_error}")
