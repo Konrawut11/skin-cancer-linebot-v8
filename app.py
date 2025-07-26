@@ -283,11 +283,15 @@ def draw_bounding_boxes(image, results):
         draw = ImageDraw.Draw(img_with_boxes)
         
         # ใช้ font ขนาดใหญ่กว่า
-        try:
+       # try:
             # ลองหา font ที่ใหญ่กว่า
-            font = ImageFont.load_default()
+        #    font = ImageFont.load_default()
+        #except:
+        #    font = None
+        try:
+            font = ImageFont.truetype("arial.ttf", size=20)  # หรือ 24, 28 แล้วแต่ความต้องการ
         except:
-            font = None
+            font = ImageFont.load_default()
         
         logger.info(f"Drawing on image size: {img_with_boxes.size}")
         
