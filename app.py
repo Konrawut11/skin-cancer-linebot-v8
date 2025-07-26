@@ -156,7 +156,7 @@ CLASS_COLORS = {
 }
 
 def save_image_temporarily(image, filename):
-    """บันทึกรูปภาพชั่วคราวสำหรับ Railway - ปรับปรุงใหม่"""
+    """บันทึกรูปภาพชั่วคราวสำหรับ Railway - แก้ไขปัญหา bounding box"""
     try:
         # สร้างโฟลเดอร์ static สำหรับ Railway
         static_dir = "static"
@@ -171,7 +171,12 @@ def save_image_temporarily(image, filename):
         # บันทึกรูปภาพ
         file_path = os.path.join(images_dir, filename)
         
-        # แปลงเป็น RGB ก่อนบันทึกเป็น JPEG
+        # ตรวจสอบว่ารูปภาพเป็น PIL Image object
+        if not isinstance(image, Image.Image):
+            logger.error(f"Invalid image type: {type(image)}")
+            return None, None
+        
+        # แปลงเป็น RGB ก่อนบันทึกเป็น JPEG (แก้ไขปัญหา bounding box หาย)
         if image.mode in ('RGBA', 'LA', 'P'):
             background = Image.new('RGB', image.size, (255, 255, 255))
             if image.mode == 'P':
@@ -181,12 +186,16 @@ def save_image_temporarily(image, filename):
         elif image.mode != 'RGB':
             image = image.convert('RGB')
         
-        # บันทึกด้วยคุณภาพที่เหมาะสม
-        image.save(file_path, 'JPEG', quality=85, optimize=True)
+        # บันทึกด้วยคุณภาพสูงเพื่อไม่ให้ bounding box เสีย
+        image.save(file_path, 'JPEG', quality=95, optimize=False)
         
         # ตรวจสอบว่าไฟล์ถูกสร้างแล้ว
         if not os.path.exists(file_path):
             raise Exception("ไม่สามารถสร้างไฟล์รูปภาพได้")
+        
+        # ตรวจสอบขนาดไฟล์
+        file_size = os.path.getsize(file_path)
+        logger.info(f"Image saved: {file_path}, Size: {file_size} bytes")
         
         # สร้าง URL หลายรูปแบบ
         image_urls = [
@@ -195,17 +204,18 @@ def save_image_temporarily(image, filename):
             f"{BASE_URL}/serve_image/{filename}"
         ]
         
-        logger.info(f"Image saved: {file_path}")
         logger.info(f"Image URLs: {image_urls}")
         
         return image_urls, file_path
         
     except Exception as e:
         logger.error(f"Error saving image temporarily: {e}")
+        import traceback
+        logger.error(f"Full traceback: {traceback.format_exc()}")
         return None, None
 
 def cleanup_old_images():
-    """ลบไฟล์รูปภาพเก่า - ปรับปรุงใหม่"""
+    """ลบไฟล์รูปภาพเก่า"""
     try:
         for dir_name in ["static/images", "temp_images"]:
             if not os.path.exists(dir_name):
@@ -240,65 +250,129 @@ def download_image_from_line(message_id):
         for chunk in message_content.iter_content():
             image_data.write(chunk)
         image_data.seek(0)
-        return Image.open(image_data)
+        
+        # เปิดรูปภาพและตรวจสอบ
+        image = Image.open(image_data)
+        logger.info(f"Downloaded image: {image.size}, mode: {image.mode}")
+        return image
+        
     except Exception as e:
         logger.error(f"Error downloading image: {e}")
         return None
 
 def draw_bounding_boxes(image, results):
-    """วาด bounding boxes บนรูปภาพ - ปรับปรุงใหม่"""
+    """วาด bounding boxes บนรูปภาพ - แก้ไขปัญหา bounding box"""
     try:
+        # ตรวจสอบว่าเป็น PIL Image
+        if not isinstance(image, Image.Image):
+            logger.error(f"Invalid image type for drawing: {type(image)}")
+            return image
+        
+        # แปลงเป็น RGB ถ้าจำเป็น
         if image.mode != 'RGB':
             image = image.convert('RGB')
         
+        # สร้างสำเนาของรูปภาพเพื่อวาด bounding box
         img_with_boxes = image.copy()
         draw = ImageDraw.Draw(img_with_boxes)
         
-        # ใช้ font ที่มีขนาดใหญ่กว่า
+        # ใช้ font ขนาดใหญ่กว่า
         try:
+            # ลองหา font ที่ใหญ่กว่า
             font = ImageFont.load_default()
         except:
             font = None
         
-        if len(results) > 0 and hasattr(results[0], 'boxes') and len(results[0].boxes) > 0:
-            boxes = results[0].boxes
-            
-            for box in boxes:
-                x1, y1, x2, y2 = box.xyxy[0].tolist()
-                class_id = int(box.cls.item()) if hasattr(box.cls, 'item') else int(box.cls)
-                confidence = float(box.conf.item()) if hasattr(box.conf, 'item') else float(box.conf)
-                
-                color = CLASS_COLORS.get(class_id, (255, 255, 0))
-                
-                # วาด bounding box หนาขึ้น
-                for i in range(5):  # วาดหลายเส้นเพื่อให้หนา
-                    draw.rectangle([x1+i, y1+i, x2-i, y2-i], outline=color, width=1)
-                
-                class_name = SKIN_CANCER_CLASSES.get(class_id, "Unknown")
-                label = f"{class_name} {confidence:.1%}"
-                
-                # สร้าง background สำหรับ text
-                if font:
-                    bbox = draw.textbbox((0, 0), label, font=font)
-                    text_width = bbox[2] - bbox[0]
-                    text_height = bbox[3] - bbox[1]
-                    
-                    # วาด background
-                    draw.rectangle([x1, y1-text_height-10, x1+text_width+10, y1], fill=color)
-                    draw.text((x1+5, y1-text_height-5), label, fill=(255, 255, 255), font=font)
+        logger.info(f"Drawing on image size: {img_with_boxes.size}")
         
+        if len(results) > 0 and hasattr(results[0], 'boxes') and results[0].boxes is not None and len(results[0].boxes) > 0:
+            boxes = results[0].boxes
+            logger.info(f"Found {len(boxes)} boxes to draw")
+            
+            for i, box in enumerate(boxes):
+                try:
+                    # ดึงข้อมูล bounding box
+                    if hasattr(box, 'xyxy') and len(box.xyxy) > 0:
+                        x1, y1, x2, y2 = box.xyxy[0].tolist()
+                        class_id = int(box.cls.item()) if hasattr(box.cls, 'item') else int(box.cls)
+                        confidence = float(box.conf.item()) if hasattr(box.conf, 'item') else float(box.conf)
+                        
+                        logger.info(f"Box {i}: ({x1:.1f}, {y1:.1f}, {x2:.1f}, {y2:.1f}), class: {class_id}, conf: {confidence:.3f}")
+                        
+                        # ตรวจสอบว่า coordinates อยู่ในขอบเขตรูปภาพ
+                        img_width, img_height = img_with_boxes.size
+                        x1 = max(0, min(x1, img_width))
+                        y1 = max(0, min(y1, img_height))
+                        x2 = max(0, min(x2, img_width))
+                        y2 = max(0, min(y2, img_height))
+                        
+                        # ตรวจสอบว่า bounding box มีขนาดที่เหมาะสม
+                        if x2 <= x1 or y2 <= y1:
+                            logger.warning(f"Invalid box dimensions: ({x1}, {y1}, {x2}, {y2})")
+                            continue
+                        
+                        color = CLASS_COLORS.get(class_id, (255, 255, 0))
+                        
+                        # วาด bounding box หนาขึ้น (เพิ่มความชัดเจน)
+                        box_thickness = max(3, min(img_width, img_height) // 200)  # ปรับความหนาตามขนาดรูป
+                        for thickness in range(box_thickness):
+                            draw.rectangle([x1+thickness, y1+thickness, x2-thickness, y2-thickness], 
+                                         outline=color, width=1)
+                        
+                        class_name = SKIN_CANCER_CLASSES.get(class_id, "Unknown")
+                        label = f"{class_name} {confidence:.1%}"
+                        
+                        # วาด background สำหรับ text
+                        if font:
+                            try:
+                                bbox = draw.textbbox((0, 0), label, font=font)
+                                text_width = bbox[2] - bbox[0]
+                                text_height = bbox[3] - bbox[1]
+                                
+                                # คำนวณตำแหน่ง text
+                                text_x = x1
+                                text_y = max(0, y1 - text_height - 10)
+                                
+                                # วาด background
+                                draw.rectangle([text_x-2, text_y-2, text_x+text_width+4, text_y+text_height+2], 
+                                             fill=color)
+                                
+                                # วาด text
+                                draw.text((text_x, text_y), label, fill=(255, 255, 255), font=font)
+                                
+                                logger.info(f"Drew text: {label} at ({text_x}, {text_y})")
+                                
+                            except Exception as text_error:
+                                logger.error(f"Error drawing text: {text_error}")
+                    
+                except Exception as box_error:
+                    logger.error(f"Error processing box {i}: {box_error}")
+                    continue
+        else:
+            logger.warning("No valid boxes found in results")
+        
+        logger.info("Bounding box drawing completed")
         return img_with_boxes
         
     except Exception as e:
         logger.error(f"Error drawing bounding boxes: {e}")
+        import traceback
+        logger.error(f"Full traceback: {traceback.format_exc()}")
         return image
 
 def predict_skin_cancer(image):
-    """ทำนายโรคผิวหนังจากรูปภาพ"""
+    """ทำนายโรคผิวหนังจากรูปภาพ - แก้ไขปัญหา bounding box"""
     if model is None:
         return None, None, "โมเดลไม่พร้อมใช้งาน"
     
     try:
+        # ตรวจสอบ image input
+        if not isinstance(image, Image.Image):
+            logger.error(f"Invalid image input type: {type(image)}")
+            return None, None, "รูปภาพไม่ถูกต้อง"
+        
+        logger.info(f"Input image: size={image.size}, mode={image.mode}")
+        
         # ทดสอบ NumPy
         try:
             test_array = np.array([1, 2, 3])
@@ -307,8 +381,12 @@ def predict_skin_cancer(image):
             logger.error(f"NumPy test failed: {np_error}")
             return None, None, f"NumPy ไม่ทำงานอย่างถูกต้อง: {str(np_error)}"
         
-        # แปลงรูปภาพ
+        # แปลงรูปภาพเป็น numpy array
         try:
+            # แปลงเป็น RGB ก่อน
+            if image.mode != 'RGB':
+                image = image.convert('RGB')
+            
             img_array = np.array(image)
             logger.info(f"Image converted to array successfully - shape: {img_array.shape}")
         except Exception as img_error:
@@ -320,22 +398,34 @@ def predict_skin_cancer(image):
             if hasattr(model, 'to'):
                 model.to('cpu')
             
-            results = model(img_array, device='cpu', verbose=False)
-            logger.info("Model prediction completed")
+            # ใช้ numpy array โดยตรง
+            results = model(img_array, device='cpu', verbose=False, conf=0.3)  # ลด threshold
+            logger.info(f"Model prediction completed, results count: {len(results)}")
+            
+            # ตรวจสอบผลลัพธ์
+            if len(results) > 0:
+                result = results[0]
+                if hasattr(result, 'boxes') and result.boxes is not None:
+                    logger.info(f"Found {len(result.boxes)} detections")
+                else:
+                    logger.info("No boxes in result")
             
         except Exception as model_error:
             logger.error(f"Model prediction failed: {model_error}")
+            import traceback
+            logger.error(f"Model prediction traceback: {traceback.format_exc()}")
             return None, None, f"การทำนายล้มเหลว: {str(model_error)}"
         
-        # วาด bounding boxes
+        # วาด bounding boxes (ทำก่อน analyze results)
         img_with_boxes = draw_bounding_boxes(image, results)
         
-        # ดึงผลลัพธ์
-        if len(results) > 0 and hasattr(results[0], 'boxes') and len(results[0].boxes) > 0:
+        # วิเคราะห์ผลลัพธ์
+        if len(results) > 0 and hasattr(results[0], 'boxes') and results[0].boxes is not None and len(results[0].boxes) > 0:
             boxes = results[0].boxes
             best_idx = 0
             best_conf = 0
             
+            # หา detection ที่มี confidence สูงสุด
             for i, box in enumerate(boxes):
                 conf = float(box.conf.item()) if hasattr(box.conf, 'item') else float(box.conf)
                 if conf > best_conf:
@@ -354,12 +444,16 @@ def predict_skin_cancer(image):
                 'total_detections': len(boxes)
             }
             
+            logger.info(f"Best prediction: {prediction_result}")
             return prediction_result, img_with_boxes, None
         else:
+            logger.info("No detections found")
             return None, img_with_boxes, "ไม่พบรอยโรคผิวหนังในรูปภาพ"
             
     except Exception as e:
         logger.error(f"Prediction error: {e}")
+        import traceback
+        logger.error(f"Full prediction traceback: {traceback.format_exc()}")
         return None, None, f"เกิดข้อผิดพลาดในการวิเคราะห์: {str(e)}"
 
 def create_result_message(prediction_result):
@@ -392,15 +486,16 @@ def create_result_message(prediction_result):
     
     return message
 
-# Routes - ปรับปรุงใหม่
+# Routes
 @app.route("/")
 def home():
     return """
-    <h1>LINE Bot Skin Cancer Detection</h1>
+    <h1>LINE Bot Skin Cancer Detection - Fixed Bounding Box</h1>
     <p>Status: Active</p>
     <p>Model: """ + ("Loaded" if model is not None else "Not Loaded") + """</p>
     <p>BASE_URL: """ + BASE_URL + """</p>
     <p>Webhook URL: """ + BASE_URL + """/webhook</p>
+    <p>Bounding Box Fix: Applied</p>
     """
 
 # เพิ่ม routes หลายรูปแบบสำหรับการเสิร์ฟรูปภาพ
@@ -470,7 +565,8 @@ def health_check():
             "directories": {
                 "static_images": os.path.exists('static/images'),
                 "temp_images": os.path.exists('temp_images')
-            }
+            },
+            "bounding_box_fix": "applied"
         }
         return status, 200
     except Exception as e:
@@ -508,7 +604,7 @@ def handle_text_message(event):
 📸 วิธีใช้งาน:
 1. ส่งรูปภาพผิวหนังที่ต้องการตรวจ
 2. รอผลการวิเคราะห์
-3. ได้รับรูปภาพพร้อม bounding box
+3. ได้รับรูปภาพพร้อม bounding box สีใส
 4. ได้รับคำแนะนำเบื้องต้น
 
 🎯 สีของกรอบ:
@@ -531,9 +627,9 @@ def handle_text_message(event):
 📁 Static Dir: {'✅' if os.path.exists('static/images') else '❌'}
 📁 Temp Dir: {'✅' if os.path.exists('temp_images') else '❌'}
 
-🎯 ฟีเจอร์ Bounding Box: ✅ พร้อมใช้งาน
+🎯 ฟีเจอร์ Bounding Box: ✅ แก้ไขแล้ว
 
-ระบบพร้อมรับรูปภาพเพื่อวิเคราะห์และแสดงผลด้วย bounding box"""
+ระบบพร้อมรับรูปภาพเพื่อวิเคราะห์และแสดงผลด้วย bounding box ที่ชัดเจน"""
         
     else:
         reply_text = """กรุณาส่งรูปภาพผิวหนังที่ต้องการตรวจ 📸
@@ -541,7 +637,7 @@ def handle_text_message(event):
 คำสั่งที่ใช้ได้:
 • "สถานะ" - ตรวจสอบสถานะระบบ
 
-🎯 ระบบจะส่งรูปภาพกลับพร้อมกรอบสีแสดงผลการตรวจ"""
+🎯 ระบบจะส่งรูปภาพกลับพร้อมกรอบสีแสดงผลการตรวจที่ชัดเจน"""
     
     line_bot_api.reply_message(
         event.reply_token,
@@ -550,12 +646,12 @@ def handle_text_message(event):
 
 @handler.add(MessageEvent, message=ImageMessage)
 def handle_image_message(event):
-    """จัดการรูปภาพ - ปรับปรุงใหม่"""
+    """จัดการรูปภาพ - แก้ไขปัญหา bounding box"""
     try:
         # ส่งข้อความแจ้งว่ากำลังประมวลผล
         line_bot_api.reply_message(
             event.reply_token,
-            TextSendMessage(text="🔍 กำลังวิเคราะห์รูปภาพและสร้าง bounding box กรุณารอสักครู่...")
+            TextSendMessage(text="🔍 กำลังวิเคราะห์รูปภาพและสร้าง bounding box ที่ชัดเจน กรุณารอสักครู่...")
         )
         
         # ดาวน์โหลดรูปภาพ
@@ -566,6 +662,8 @@ def handle_image_message(event):
                 TextSendMessage(text="ไม่สามารถดาวน์โหลดรูปภาพได้ กรุณาลองใหม่")
             )
             return
+        
+        logger.info(f"Processing image: {image.size}, mode: {image.mode}")
         
         # ทำการทำนาย
         prediction, img_with_boxes, error = predict_skin_cancer(image)
@@ -580,7 +678,7 @@ def handle_image_message(event):
         # สร้างข้อความผลลัพธ์
         result_message = create_result_message(prediction)
         
-        # บันทึกรูปภาพที่มี bounding box และส่งกลับ
+        # บันทึกและส่งรูปภาพที่มี bounding box
         if img_with_boxes is not None:
             try:
                 # สร้างชื่อไฟล์ unique
@@ -588,50 +686,62 @@ def handle_image_message(event):
                 random_num = random.randint(1000, 9999)
                 filename = f"result_{timestamp}_{random_num}.jpg"
                 
+                logger.info(f"Saving processed image: {filename}")
+                
                 # บันทึกรูปภาพชั่วคราว
                 image_urls, file_path = save_image_temporarily(img_with_boxes, filename)
                 
                 success_sent = False
                 
-                if image_urls:
-                    # ลองส่งรูปภาพด้วย URL แต่ละตัว
-                    for image_url in image_urls:
-                        try:
-                            logger.info(f"Attempting to send image with URL: {image_url}")
-                            
-                            messages = [
-                                ImageSendMessage(
-                                    original_content_url=image_url,
-                                    preview_image_url=image_url
-                                ),
-                                TextSendMessage(text=result_message)
-                            ]
-                            
-                            line_bot_api.push_message(event.source.user_id, messages)
-                            logger.info(f"Image sent successfully with URL: {image_url}")
-                            success_sent = True
-                            break
-                            
-                        except Exception as url_error:
-                            logger.warning(f"Failed to send image with URL {image_url}: {url_error}")
-                            continue
+                if image_urls and file_path:
+                    # ตรวจสอบว่าไฟล์ถูกบันทึกจริง
+                    if os.path.exists(file_path):
+                        file_size = os.path.getsize(file_path)
+                        logger.info(f"Image file saved successfully: {file_path}, size: {file_size} bytes")
+                        
+                        # ลองส่งรูปภาพด้วย URL แต่ละตัว
+                        for i, image_url in enumerate(image_urls):
+                            try:
+                                logger.info(f"Attempting to send image with URL {i+1}: {image_url}")
+                                
+                                messages = [
+                                    ImageSendMessage(
+                                        original_content_url=image_url,
+                                        preview_image_url=image_url
+                                    ),
+                                    TextSendMessage(text=result_message)
+                                ]
+                                
+                                line_bot_api.push_message(event.source.user_id, messages)
+                                logger.info(f"Image sent successfully with URL: {image_url}")
+                                success_sent = True
+                                break
+                                
+                            except Exception as url_error:
+                                logger.warning(f"Failed to send image with URL {image_url}: {url_error}")
+                                continue
+                    else:
+                        logger.error(f"Image file was not saved: {file_path}")
                 
                 if not success_sent:
                     # ถ้าส่งรูปภาพไม่ได้ทุก URL ส่งแค่ข้อความ
                     logger.error("All image URLs failed, sending text only")
                     line_bot_api.push_message(
                         event.source.user_id,
-                        TextSendMessage(text=f"{result_message}\n\n⚠️ ไม่สามารถส่งรูปภาพที่วิเคราะห์แล้วได้ กรุณาลองใหม่อีกครั้ง")
+                        TextSendMessage(text=f"{result_message}\n\n⚠️ ไม่สามารถส่งรูปภาพผลลัพธ์ได้ แต่การวิเคราะห์เสร็จสมบูรณ์แล้ว")
                     )
                 else:
-                    logger.info("Image sent successfully")
+                    logger.info("Image with bounding boxes sent successfully")
                     
             except Exception as img_error:
                 logger.error(f"Error in image processing: {img_error}")
+                import traceback
+                logger.error(f"Image processing traceback: {traceback.format_exc()}")
+                
                 # ส่งแค่ข้อความผลลัพธ์
                 line_bot_api.push_message(
                     event.source.user_id,
-                    TextSendMessage(text=f"{result_message}\n\n⚠️ เกิดข้อผิดพลาดในการส่งรูปภาพ: {str(img_error)}")
+                    TextSendMessage(text=f"{result_message}\n\n⚠️ เกิดข้อผิดพลาดในการส่งรูปภาพผลลัพธ์: {str(img_error)}")
                 )
         else:
             # ไม่มีรูปภาพ ส่งแค่ข้อความ
@@ -654,6 +764,7 @@ if __name__ == "__main__":
     print("🚀 Starting LINE Bot Server on Railway...")
     print(f"📡 BASE_URL: {BASE_URL}")
     print(f"🤖 Model Status: {'✅ Loaded' if model is not None else '❌ Not Loaded'}")
+    print("🎯 Bounding Box Fix: Applied ✅")
     
     # สร้างโฟลเดอร์ที่จำเป็น
     directories = ["temp_images", "static", "static/images"]
