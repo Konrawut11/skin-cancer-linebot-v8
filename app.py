@@ -320,30 +320,77 @@ def draw_bounding_boxes(image, results):
                                          outline=color, width=1)
                         
                         class_name = SKIN_CANCER_CLASSES.get(class_id, "Unknown")
-                        label = f"{class_name} {confidence:.1%}"
                         
-                        # วาด background สำหรับ text
+                        # สร้าง label หลายบรรทัด
+                        main_label = f"{class_name}"
+                        confidence_label = f"ความแม่นยำ: {confidence:.1%}"
+                        risk_label = f"{RISK_LEVELS.get(class_id, 'ไม่ทราบ')}"
+                        
+                        # วาด background และ text สำหรับแต่ละบรรทัด
                         if font:
                             try:
-                                bbox = draw.textbbox((0, 0), label, font=font)
-                                text_width = bbox[2] - bbox[0]
-                                text_height = bbox[3] - bbox[1]
+                                # คำนวณขนาด text สำหรับแต่ละบรรทัด
+                                main_bbox = draw.textbbox((0, 0), main_label, font=font)
+                                conf_bbox = draw.textbbox((0, 0), confidence_label, font=font)
+                                risk_bbox = draw.textbbox((0, 0), risk_label, font=font)
                                 
-                                # คำนวณตำแหน่ง text
+                                main_width = main_bbox[2] - main_bbox[0]
+                                main_height = main_bbox[3] - main_bbox[1]
+                                conf_width = conf_bbox[2] - conf_bbox[0]
+                                conf_height = conf_bbox[3] - conf_bbox[1]
+                                risk_width = risk_bbox[2] - risk_bbox[0]
+                                risk_height = risk_bbox[3] - risk_bbox[1]
+                                
+                                # หาความกว้างสูงสุด
+                                max_width = max(main_width, conf_width, risk_width)
+                                total_height = main_height + conf_height + risk_height + 12  # เว้นระยะ 4px ระหว่างบรรทัด
+                                
+                                # คำนวณตำแหน่ง
                                 text_x = x1
-                                text_y = max(0, y1 - text_height - 10)
+                                text_y = max(5, y1 - total_height - 15)
                                 
-                                # วาด background
-                                draw.rectangle([text_x-2, text_y-2, text_x+text_width+4, text_y+text_height+2], 
+                                # วาด background สำหรับทั้งหมด
+                                draw.rectangle([text_x-5, text_y-5, text_x+max_width+10, text_y+total_height+5], 
                                              fill=color)
                                 
-                                # วาด text
-                                draw.text((text_x, text_y), label, fill=(255, 255, 255), font=font)
+                                # วาดขอบสีขาว
+                                draw.rectangle([text_x-5, text_y-5, text_x+max_width+10, text_y+total_height+5], 
+                                             outline=(255, 255, 255), width=2)
                                 
-                                logger.info(f"Drew text: {label} at ({text_x}, {text_y})")
+                                # วาด text แต่ละบรรทัด
+                                current_y = text_y
+                                
+                                # บรรทัดที่ 1: ชื่อโรค
+                                draw.text((text_x, current_y), main_label, fill=(255, 255, 255), font=font)
+                                current_y += main_height + 4
+                                
+                                # บรรทัดที่ 2: ความแม่นยำ (สีเหลืองเพื่อเด่น)
+                                draw.text((text_x, current_y), confidence_label, fill=(255, 255, 0), font=font)
+                                current_y += conf_height + 4
+                                
+                                # บรรทัดที่ 3: ระดับความเสี่ยง
+                                risk_color = (255, 100, 100) if class_id == 0 else (100, 255, 100) if class_id == 1 else (255, 200, 100)
+                                draw.text((text_x, current_y), risk_label, fill=risk_color, font=font)
+                                
+                                logger.info(f"Drew enhanced text: {main_label} | {confidence_label} | {risk_label} at ({text_x}, {text_y})")
                                 
                             except Exception as text_error:
-                                logger.error(f"Error drawing text: {text_error}")
+                                # Fallback: วาดแค่ข้อความเดียว
+                                try:
+                                    simple_label = f"{class_name} {confidence:.1%}"
+                                    bbox = draw.textbbox((0, 0), simple_label, font=font)
+                                    text_width = bbox[2] - bbox[0]
+                                    text_height = bbox[3] - bbox[1]
+                                    
+                                    text_x = x1
+                                    text_y = max(0, y1 - text_height - 10)
+                                    
+                                    draw.rectangle([text_x-2, text_y-2, text_x+text_width+4, text_y+text_height+2], 
+                                                 fill=color)
+                                    draw.text((text_x, text_y), simple_label, fill=(255, 255, 255), font=font)
+                                    
+                                except:
+                                    logger.error(f"Error drawing text: {text_error}")
                     
                 except Exception as box_error:
                     logger.error(f"Error processing box {i}: {box_error}")
