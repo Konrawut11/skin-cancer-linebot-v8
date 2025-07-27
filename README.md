@@ -79,7 +79,6 @@ skin-cancer-linebot-v8/
 ├── static/
 │   └── images/           # Temporary image storage
 ├── requirements.txt      # Python dependencies
-├── railway.toml         # Railway deployment config
 └── README.md
 ```
 
@@ -210,7 +209,6 @@ python -c "from app import predict_skin_cancer; print('Functions loaded successf
 
 ### **Issues & Bug Reports**
 - GitHub Issues: [Create New Issue](https://github.com/Konrawut11/skin-cancer-linebot-v8/issues)
-- Email: [your-email@example.com]
 
 ### **Documentation**
 - [LINE Bot SDK Documentation](https://github.com/line/line-bot-sdk-python)
